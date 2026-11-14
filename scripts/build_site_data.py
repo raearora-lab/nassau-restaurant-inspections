@@ -160,12 +160,14 @@ def main():
         }
         shards[int(oid) % NSHARD][oid] = det
         tg = {"Food service": "F", "Institutional": "I"}.get(r["Type group"], "O")
+        latest = ilist[0] if ilist else None
         index_rows.append([
             int(oid), nm, title(r.Address), title(r.City), title(r.Municipality), 1 if r.Status == "Active" else 0,
             r["Latest grade (from comments)"], round(ll[0], 5) if ll else None, round(ll[1], 5) if ll else None,
             len(ilist), sum(i[2] for i in ilist), sum(i[2] for i in ilist if i[0] >= WINDOW_START),
-            ilist[0][0] if ilist else r["Latest inspection date"], tg, 1 if same else 0,
+            latest[0] if latest else r["Latest inspection date"], tg, 1 if same else 0,
             (lambda o: o if o.upper() != nm.upper() else "")(DORMANT_RE.sub("", cs(r["Operation name"])).strip(" -/")),
+            latest[2] if latest else None, latest[3] if latest else None, latest[1] if latest else None,
         ])
 
     if OUT.exists():
@@ -174,13 +176,13 @@ def main():
     dump = lambda p, o: p.write_text(json.dumps(o, separators=(",", ":"), ensure_ascii=False))
     index_rows.sort(key=lambda x: re.sub(r"^[^A-Za-z0-9]+", "", x[1]).upper())
     dump(OUT / "index.json", {"cols": ["id", "name", "addr", "city", "muni", "open", "grade", "lat", "lon",
-                                       "insp", "crit", "crit3", "last", "type", "same", "op"], "rows": index_rows})
+                                       "insp", "crit", "crit3", "last", "type", "same", "op", "lastc", "lastn", "lastt"], "rows": index_rows})
     for k, v in shards.items():
         dump(OUT / "d" / f"{k}.json", v)
     dump(OUT / "viol.json", vdict)
 
     # --- curated lists ---
-    I = {c: i for i, c in enumerate(["id", "name", "addr", "city", "muni", "open", "grade", "lat", "lon", "insp", "crit", "crit3", "last", "type", "same"])}
+    I = {c: i for i, c in enumerate(["id", "name", "addr", "city", "muni", "open", "grade", "lat", "lon", "insp", "crit", "crit3", "last", "type", "same", "op", "lastc", "lastn", "lastt"])}
     rows = index_rows
     recent = sorted(rows, key=lambda x: x[I["last"]] or "", reverse=True)[:60]
     crit3 = sorted([x for x in rows if x[I["open"]] and x[I["crit3"]] > 0], key=lambda x: (-x[I["crit3"]], x[I["name"]]))[:50]
@@ -199,13 +201,13 @@ def main():
         prev = [o for o in others if o.Status == "Closed" and o["Type group"] == "Food service"]
         if len(prev) >= 2:
             seen_loc.add(loc)
-            turnover.append([x[0], x[I["name"]], x[I["addr"]], x[I["city"]], len(prev), [name_of(o) for o in sorted(prev, key=lambda o: o["Latest inspection date"], reverse=True)[:4]]])
+            turnover.append([x[0], x[I["name"]], x[I["addr"]], x[I["city"]], len(prev), [name_of(o) for o in sorted(prev, key=lambda o: o["Latest inspection date"], reverse=True)[:4]], x[I["last"]], x[I["grade"]], x[I["lastc"]]])
     turnover.sort(key=lambda t: (-t[4], t[1]))
     def opname(x):
         r = srow[str(x[0])]
         o = DORMANT_RE.sub("", cs(r["Operation name"])).strip(" -/")
         return o if o.upper() != x[I["name"]].upper() else ""
-    pick = lambda xs: [[x[0], x[I["name"]], x[I["city"]], x[I["open"]], x[I["grade"]], x[I["last"]], x[I["crit3"]], x[I["crit"]], x[I["insp"]], opname(x)] for x in xs]
+    pick = lambda xs: [[x[0], x[I["name"]], x[I["city"]], x[I["open"]], x[I["grade"]], x[I["last"]], x[I["crit3"]], x[I["crit"]], x[I["insp"]], opname(x), x[I["lastc"]], x[I["lastn"]], x[I["lastt"]]] for x in xs]
     dump(OUT / "lists.json", {"recent": pick(recent), "crit3": pick(crit3), "latestC": pick(latest_c), "turnover": turnover[:60]})
     meta = {"facilities": len(rows), "open": sum(x[5] for x in rows), "closed": len(rows) - sum(x[5] for x in rows),
             "inspections": sum(x[9] for x in rows), "pinned": len(coords), "coord_sources": dict(src_counts),

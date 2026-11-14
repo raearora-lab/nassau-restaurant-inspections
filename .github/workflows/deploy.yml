@@ -1,0 +1,37 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: 69e84452e69fcd90dfa533795190f95f
+        run: |
+          set +e
+          npx -y wrangler@4 pages project create nassau-restaurant-inspections --production-branch=main
+          echo "project create exit $?"
+          attempt=1
+          while [ "$attempt" -le 5 ]; do
+            echo "deploy attempt $attempt"
+            npx -y wrangler@4 pages deploy docs --project-name=nassau-restaurant-inspections --branch=main --commit-dirty=true
+            if [ $? -eq 0 ]; then
+              exit 0
+            fi
+            sleep_for=$((attempt * 40))
+            echo "deploy failed; sleeping ${sleep_for}s"
+            sleep "$sleep_for"
+            attempt=$((attempt + 1))
+          done
+          exit 1

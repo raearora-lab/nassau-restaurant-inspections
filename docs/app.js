@@ -21,18 +21,44 @@
   // ---------- map ----------
   function initMap() {
     map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([40.73, -73.59], 11);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    // CARTO dark_all currently serves only "API KEY REQUIRED" watermark tiles.
+    // Esri World Dark Gray is a free, keyless dark basemap with no watermark.
+    // Native tiles stop at zoom 16 ("Map data not yet available" above that), so overzoom past 16.
+    var esriAttr = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 18,
+      maxNativeZoom: 16,
+      attribution: esriAttr
     }).addTo(map);
-    cluster = L.markerClusterGroup({ chunkedLoading: true, showCoverageOnHover: false, maxClusterRadius: 50, spiderfyOnMaxZoom: true, disableClusteringAtZoom: 18 });
+    map.createPane("labels");
+    map.getPane("labels").style.zIndex = 450;
+    map.getPane("labels").style.pointerEvents = "none";
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 18,
+      maxNativeZoom: 16,
+      pane: "labels",
+      attribution: esriAttr
+    }).addTo(map);
+    cluster = L.markerClusterGroup({
+      chunkedLoading: true,
+      showCoverageOnHover: false,
+      maxClusterRadius: 50,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 18,
+      iconCreateFunction: function (cl) {
+        var n = cl.getChildCount();
+        var size = n < 25 ? "small" : n < 100 ? "medium" : "large";
+        var dim = size === "small" ? 36 : size === "medium" ? 44 : 54;
+        return L.divIcon({ html: "<span>" + n + "</span>", className: "nri-cluster nri-cluster-" + size, iconSize: L.point(dim, dim) });
+      }
+    });
     map.addLayer(cluster);
   }
   function markerFor(r) {
     var id = r[C.id];
     if (markers[id]) return markers[id];
-    var color = r[C.open] ? "#1f4e79" : "#8c9196";
-    var m = L.circleMarker([r[C.lat], r[C.lon]], { radius: 6, weight: 1.5, color: "#fff", fillColor: color, fillOpacity: 0.95 });
+    var color = !r[C.open] ? "#8a8a94" : r[C.grade] === "A" ? "#c8ff00" : r[C.grade] === "B" ? "#3d7eff" : r[C.grade] === "C" ? "#ff2d6a" : "#00ffd0";
+    var m = L.circleMarker([r[C.lat], r[C.lon]], { radius: 6, weight: 1.5, color: "#000", fillColor: color, fillOpacity: 1 });
     m.bindPopup(function () {
       return '<a href="#/r/' + id + '">' + esc(nameCase(r[C.name])) + "</a><br>" + esc(r[C.addr]) + ", " + esc(r[C.city]) +
         "<br>" + statusBadge(r[C.open]) + gradeBadge(r[C.grade]) + '<br><span class="muted">Latest inspection ' + fdate(r[C.last]) + "</span>";
@@ -106,10 +132,10 @@
         '<h1 class="d-name">' + esc(nameCase(d.n)) + "</h1>",
         '<p class="d-addr">' + esc(d.a) + ", " + esc(d.c) + " " + esc(d.z) + "<br>" + statusBadge(open) + gradeBadge(d.g) + "</p>",
         '<div class="facts">',
-        '<div class="fact"><b>' + d.i.length + "</b><span>inspections on record</span></div>",
-        '<div class="fact"><b>' + crit + "</b><span>critical violations, all time</span></div>",
-        '<div class="fact"><b>' + crit3 + "</b><span>critical violations, last 3 years (" + n3 + " inspection" + (n3 === 1 ? "" : "s") + ")</span></div>",
-        '<div class="fact"><b>' + (d.i.length ? fdate(d.i[0][0]) : "—") + "</b><span>latest inspection</span></div>",
+        '<div class="fact fact-lime"><b>' + d.i.length + "</b><span>inspections on record</span></div>",
+        '<div class="fact fact-pink"><b>' + crit + "</b><span>critical violations, all time</span></div>",
+        '<div class="fact fact-pink"><b>' + crit3 + "</b><span>critical violations, last 3 years (" + n3 + " inspection" + (n3 === 1 ? "" : "s") + ")</span></div>",
+        '<div class="fact fact-teal"><b>' + (d.i.length ? fdate(d.i[0][0]) : "—") + "</b><span>latest inspection</span></div>",
         "</div>",
         '<dl class="kv">',
         "<dt>Type</dt><dd>" + esc(d.t) + "</dd>",
@@ -161,7 +187,7 @@
   function focusOnMap(id, d) {
     if (highlight) { map.removeLayer(highlight); highlight = null; }
     if (!d.ll) return;
-    highlight = L.circleMarker(d.ll, { radius: 11, weight: 3, color: "#a4262c", fill: false }).addTo(map);
+    highlight = L.circleMarker(d.ll, { radius: 12, weight: 3, color: "#c8ff00", fill: false, opacity: 1 }).addTo(map);
     map.setView(d.ll, Math.max(map.getZoom(), 16));
   }
 

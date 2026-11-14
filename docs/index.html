@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nassau County Restaurant Inspections, 2001–2026</title>
+<meta name="description" content="Search the public inspection history of every Nassau County, NY food service establishment in NYS Department of Health open data, open and closed, 2001 to 2026.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" crossorigin="">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%226%22 fill=%22%231f4e79%22/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="#/">
+    <span class="brand-title">Nassau County Restaurant Inspections</span>
+    <span class="brand-sub">Public health inspection records, 2001–2026</span>
+  </a>
+  <nav>
+    <a href="#/" data-nav="map">Map &amp; search</a>
+    <a href="#/browse" data-nav="browse">Browse</a>
+    <a href="#/about" data-nav="about">About the data</a>
+  </nav>
+</header>
+
+<main id="view-map" class="view">
+  <aside id="sidebar">
+    <div id="list-pane">
+      <form id="filters" autocomplete="off" onsubmit="return false">
+        <label class="sr" for="q">Search by name or address</label>
+        <input id="q" type="search" placeholder="Search a name or street (e.g. Positano)">
+        <div class="row">
+          <select id="f-town" aria-label="Town"><option value="">All towns and villages</option></select>
+          <select id="f-status" aria-label="Status">
+            <option value="open">Open now</option>
+            <option value="closed">Closed</option>
+            <option value="all">Open and closed</option>
+          </select>
+        </div>
+        <div class="row">
+          <select id="f-grade" aria-label="Latest grade">
+            <option value="">Any latest grade</option>
+            <option value="A">Grade A</option>
+            <option value="B">Grade B</option>
+            <option value="C">Grade C</option>
+            <option value="none">No grade recorded</option>
+          </select>
+          <select id="f-type" aria-label="Type">
+            <option value="">All food service types</option>
+            <option value="F">Restaurants, delis &amp; other food service</option>
+            <option value="I">Schools, day care &amp; institutions</option>
+          </select>
+        </div>
+        <div class="row">
+          <label class="check"><input id="f-crit" type="checkbox"> Critical violation in the last 3 years</label>
+          <select id="f-sort" aria-label="Sort">
+            <option value="name">Sort: name</option>
+            <option value="recent">Sort: latest inspection</option>
+            <option value="crit3">Sort: critical violations, last 3 yrs</option>
+          </select>
+        </div>
+      </form>
+      <div id="result-count" class="muted" aria-live="polite">Loading…</div>
+      <ol id="results"></ol>
+      <button id="more" class="btn-link" hidden>Show more</button>
+    </div>
+    <div id="detail-pane" hidden></div>
+  </aside>
+  <div id="map" role="region" aria-label="Map of facilities"></div>
+</main>
+
+<main id="view-browse" class="view page" hidden>
+  <div class="page-inner">
+    <h1>Browse</h1>
+    <p class="lede">Lists of specific places drawn from the inspection records. Select a name to see its full inspection history.</p>
+    <div id="browse-lists">Loading…</div>
+  </div>
+</main>
+
+<main id="view-about" class="view page" hidden>
+  <div class="page-inner prose">
+    <h1>About the data</h1>
+    <p class="lede">This site makes the New York State Department of Health's public inspection records for Nassau County food service establishments searchable by place.</p>
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://health.data.ny.gov/d/2hcc-shji" rel="noopener">Food Service Establishment Inspections: Beginning 2005</a> (dataset <code>2hcc-shji</code>), for active establishments.</li>
+      <li><a href="https://health.data.ny.gov/d/aaxz-j6pj" rel="noopener">Food Service Establishment Inspections, Inactive Establishments: Beginning 2005</a> (dataset <code>aaxz-j6pj</code>), for closed and inactive establishments.</li>
+      <li><a href="https://health.data.ny.gov/d/cnih-y5dw" rel="noopener">Food Service Establishment: Last Inspection</a> (dataset <code>cnih-y5dw</code>), used only to fill in details for matching active establishments.</li>
+    </ul>
+    <p>All three are published by NYS DOH on health.data.ny.gov and were downloaded on November 9 and 12, 2026. The records run from January 2001 through <strong>November 6, 2026</strong>. Records before 2008 are sparse.</p>
+    <h2>How to read it</h2>
+    <ul>
+      <li><strong>One source row is one violation, not one visit.</strong> We grouped rows into inspections by establishment, date and inspection type, and counted each inspection's violation totals once.</li>
+      <li><strong>Critical violations</strong> are those NYS DOH classifies as critical, meaning they are more likely to contribute to foodborne illness. Inspectors often record that these were corrected during the visit.</li>
+      <li><strong>Letter grades are not an official field.</strong> NYS DOH says this data was not collected as a grading system. Where an inspector's comments say something like "Grade A", we show that letter. A missing grade means none was written in the comments. It does not mean the place was ungraded or did poorly.</li>
+      <li><strong>Not only restaurants.</strong> The records cover every permitted food service operation, including delis, bakeries, caterers, school cafeterias, day care kitchens, camps and other institutions.</li>
+      <li><strong>Closed places are included.</strong> Closed establishments come from the inactive dataset. A new permit at the same address or facility code shows up under "Same location history". That can mean an ownership or name change, or a second kitchen at a school, hotel or venue.</li>
+      <li><strong>Map locations</strong> come from coordinates in the source data where present. Otherwise they come from another record at the same address, or from the <a href="https://geocoding.geo.census.gov/" rel="noopener">US Census Bureau geocoder</a>. A small number of places could not be placed. They can still be found by search.</li>
+      <li>"Last 3 years" means inspections on or after November 9, 2023.</li>
+    </ul>
+    <h2>Disclaimer</h2>
+    <p class="disclaimer">This site republishes public government records as provided. The records may contain errors or omissions. An inspection is a snapshot of conditions on one day and does not describe how a place operates today. Do not use this site as the sole basis for any decision about a business. For official information, contact the Nassau County Department of Health or see the NYS DOH datasets linked above.</p>
+    <h2>Source code</h2>
+    <p>The scripts that build this site from the raw data are in the <a href="https://github.com/raearora-lab/nassau-restaurant-inspections" rel="noopener">GitHub repository</a>.</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Public records from the NYS Department of Health, through Nov 6, 2026. They may contain errors and do not describe current conditions. <a href="#/about">About the data</a>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" crossorigin=""></script>
+<script src="app.js"></script>
+</body>
+</html>

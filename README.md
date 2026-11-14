@@ -4,7 +4,9 @@ A static, searchable map of the public inspection history for every Nassau Count
 service establishment in New York State Department of Health open data. It covers open and closed
 places, with records from January 2001 through November 6, 2026.
 
-**Live site:** https://raearora-lab.github.io/nassau-restaurant-inspections/
+**Live site:** https://nassau-restaurant-inspections.pages.dev/
+
+A GitHub Pages copy remains at https://raearora-lab.github.io/nassau-restaurant-inspections/.
 
 ## What's here
 
@@ -32,6 +34,19 @@ data/geocode_cache.csv  cached Census geocoder results
 
 Filter each dataset to `county = NASSAU` and download the full CSV, for example with the SODA API
 (`https://health.data.ny.gov/resource/2hcc-shji.csv?county=NASSAU&$limit=50000&$offset=...`).
+
+
+## Deploy
+
+Static files live in `docs/`. GitHub Actions deploys to the Cloudflare Pages project
+`nassau-restaurant-inspections` on push to `main`, using repo secrets `CLOUDFLARE_API_KEY`
+and `CLOUDFLARE_EMAIL` and account `69e84452e69fcd90dfa533795190f95f`.
+
+```bash
+npx wrangler@4 pages deploy docs --project-name=nassau-restaurant-inspections --branch=main
+```
+
+GitHub Pages (from `/docs` on `main`) is still enabled as a backup.
 
 ## Rebuild
 

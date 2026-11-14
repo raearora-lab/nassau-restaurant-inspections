@@ -15,27 +15,70 @@
       .replace(/'S\b/g, "'s").replace(/\b(Llc|Inc|Ii|Iii|Bbq|Nyc|Usa|Ny)\b/g, function (m) { return m.toUpperCase(); });
   }
   function statusBadge(open) { return open ? '<span class="badge b-open">Open</span>' : '<span class="badge b-closed">Closed</span>'; }
-  function gradeBadge(g) { return g ? '<span class="badge b-' + g + '" title="Latest grade written in inspector comments">Grade ' + g + "</span>" : ""; }
+  function gradeBadge(g, unofficial) {
+    if (!g) return "";
+    return '<span class="badge b-' + g + '" title="Grade written in inspector comments, not an official grade field">Grade ' + g +
+      (unofficial ? " · unofficial" : "") + "</span>";
+  }
+  function resultBadge(grade, crit) {
+    if (crit == null && !grade) return "";
+    if (grade) return gradeBadge(grade, true);
+    if (crit > 0) return '<span class="badge b-crit">' + crit + " critical</span>";
+    return '<span class="badge b-clean">Clean</span>';
+  }
+  function inspType(t) { return t === "R" ? "Re-inspection" : "Inspection"; }
   function getJSON(u) { return fetch(u).then(function (r) { if (!r.ok) throw new Error(u + " " + r.status); return r.json(); }); }
 
   // ---------- map ----------
   function initMap() {
     map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([40.73, -73.59], 11);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    // CARTO dark_all currently serves only "API KEY REQUIRED" watermark tiles.
+    // Esri World Dark Gray is a free, keyless dark basemap with no watermark.
+    // Native tiles stop at zoom 16 ("Map data not yet available" above that), so overzoom past 16.
+    var esriAttr = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 18,
+      maxNativeZoom: 16,
+      attribution: esriAttr
     }).addTo(map);
-    cluster = L.markerClusterGroup({ chunkedLoading: true, showCoverageOnHover: false, maxClusterRadius: 50, spiderfyOnMaxZoom: true, disableClusteringAtZoom: 18 });
+    map.createPane("labels");
+    map.getPane("labels").style.zIndex = 450;
+    map.getPane("labels").style.pointerEvents = "none";
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 18,
+      maxNativeZoom: 16,
+      pane: "labels",
+      attribution: esriAttr
+    }).addTo(map);
+    cluster = L.markerClusterGroup({
+      chunkedLoading: true,
+      showCoverageOnHover: false,
+      maxClusterRadius: 50,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 18,
+      iconCreateFunction: function (cl) {
+        var n = cl.getChildCount();
+        var size = n < 25 ? "small" : n < 100 ? "medium" : "large";
+        var dim = size === "small" ? 36 : size === "medium" ? 44 : 54;
+        return L.divIcon({ html: "<span>" + n + "</span>", className: "nri-cluster nri-cluster-" + size, iconSize: L.point(dim, dim) });
+      }
+    });
     map.addLayer(cluster);
   }
   function markerFor(r) {
     var id = r[C.id];
     if (markers[id]) return markers[id];
-    var color = r[C.open] ? "#1f4e79" : "#8c9196";
-    var m = L.circleMarker([r[C.lat], r[C.lon]], { radius: 6, weight: 1.5, color: "#fff", fillColor: color, fillOpacity: 0.95 });
+    var color = !r[C.open] ? "#8a8a94" : r[C.grade] === "A" ? "#c8ff00" : r[C.grade] === "B" ? "#3d7eff" : r[C.grade] === "C" ? "#ff2d6a" : "#00ffd0";
+    var m = L.circleMarker([r[C.lat], r[C.lon]], { radius: 6, weight: 1.5, color: "#000", fillColor: color, fillOpacity: 1 });
     m.bindPopup(function () {
+      var lastc = C.lastc != null ? r[C.lastc] : null;
+      var lastn = C.lastn != null ? r[C.lastn] : null;
+      var typ = C.lastt != null ? r[C.lastt] : "";
+      var counts = lastc == null ? "" : (lastc + " critical · " + lastn + " non-critical");
       return '<a href="#/r/' + id + '">' + esc(nameCase(r[C.name])) + "</a><br>" + esc(r[C.addr]) + ", " + esc(r[C.city]) +
-        "<br>" + statusBadge(r[C.open]) + gradeBadge(r[C.grade]) + '<br><span class="muted">Latest inspection ' + fdate(r[C.last]) + "</span>";
+        "<br>" + statusBadge(r[C.open]) + resultBadge(r[C.grade], lastc) +
+        '<br><span class="r-latest">Latest ' + fdate(r[C.last]) + (typ ? " · " + inspType(typ) : "") +
+        (counts ? " · " + counts : "") + "</span>";
     });
     markers[id] = m;
     return m;
@@ -75,9 +118,15 @@
     var html = [], end = Math.min(filtered.length, shown + PAGE);
     for (var i = shown; i < end; i++) {
       var r = filtered[i];
-      html.push('<li><a href="#/r/' + r[C.id] + '"><div class="r-name">' + esc(nameCase(r[C.name])) + statusBadge(r[C.open]) + gradeBadge(r[C.grade]) +
-        '</div><div class="r-meta">' + (r[C.op] ? esc(nameCase(r[C.op])) + "<br>" : "") + esc(r[C.addr]) + ", " + esc(r[C.city]) + " · " + r[C.insp] + " inspection" + (r[C.insp] === 1 ? "" : "s") +
-        " · latest " + fdate(r[C.last]) + (r[C.crit3] ? ' · <span class="b-crit">' + r[C.crit3] + " critical in last 3 yrs</span>" : "") + "</div></a></li>");
+      var lastc = C.lastc != null ? r[C.lastc] : null;
+      var lastn = C.lastn != null ? r[C.lastn] : null;
+      var typ = C.lastt != null ? r[C.lastt] : "";
+      html.push('<li><a href="#/r/' + r[C.id] + '"><div class="r-name">' + esc(nameCase(r[C.name])) + statusBadge(r[C.open]) +
+        '</div><div class="r-latest">' + fdate(r[C.last]) + (typ ? " · " + inspType(typ) : "") + " " + resultBadge(r[C.grade], lastc) +
+        (lastc > 0 ? "" : (lastn > 0 ? '<span class="muted"> · ' + lastn + " non-critical</span>" : "")) +
+        '</div><div class="r-meta">' + (r[C.op] ? esc(nameCase(r[C.op])) + "<br>" : "") + esc(r[C.addr]) + ", " + esc(r[C.city]) +
+        " · " + r[C.insp] + " inspection" + (r[C.insp] === 1 ? "" : "s") +
+        (r[C.crit3] ? ' · <span class="b-crit">' + r[C.crit3] + " critical in last 3 yrs</span>" : "") + "</div></a></li>");
     }
     $("results").insertAdjacentHTML("beforeend", html.join(""));
     shown = end;
@@ -91,6 +140,30 @@
     var v = viol ? Promise.resolve(viol) : getJSON("data/viol.json").then(function (x) { viol = x; return x; });
     return Promise.all([shardCache[k], v]).then(function (a) { return a[0][String(id)]; });
   }
+  function renderViolations(x) {
+    var v = x[7] || [];
+    var parts = [];
+    if (v.length) {
+      parts.push('<ul class="vlist">');
+      v.forEach(function (it) {
+        parts.push('<li class="' + (it[2] ? "crit" : "") + '">' + (it[2] ? '<span class="ct">Critical</span>' : "") +
+          '<span class="code">' + esc(it[0]) + "</span>" + esc(viol[it[1]] || "") + "</li>");
+      });
+      parts.push("</ul>");
+    } else if (!x[2] && !x[3]) {
+      parts.push('<div class="none">No violations recorded.</div>');
+    } else {
+      parts.push('<div class="none">Violation details were not itemized in the source data.</div>');
+    }
+    if (x[6]) parts.push('<p class="cmt"><span class="cmt-l">Inspector comments</span>' + esc(x[6]) + "</p>");
+    return parts.join("");
+  }
+  function renderInsp(x) {
+    return '<div class="insp"><div class="insp-h"><span><span class="date">' + fdate(x[0]) + "</span> · " + inspType(x[1]) +
+      gradeBadge(x[5], true) + '</span><span class="cnt">' + x[2] + " critical" +
+      (x[4] ? " (" + x[4] + " not corrected on site)" : "") + " · " + x[3] + " non-critical</span></div>" +
+      renderViolations(x) + "</div>";
+  }
   function showDetail(id) {
     $("list-pane").hidden = true;
     var pane = $("detail-pane"); pane.hidden = false;
@@ -102,14 +175,35 @@
       document.title = nameCase(d.n) + " · Nassau County Restaurant Inspections";
       var crit = 0, crit3 = 0, n3 = 0, cutoff = "2023-11-09";
       d.i.forEach(function (x) { crit += x[2]; if (x[0] >= cutoff) { crit3 += x[2]; n3++; } });
+      var latest = d.i.length ? d.i[0] : null;
+      var tone = !latest ? "" : (latest[2] > 0 ? " latest-crit" : " latest-clean");
       var h = ['<a class="back" href="#/">← All places</a>',
         '<h1 class="d-name">' + esc(nameCase(d.n)) + "</h1>",
-        '<p class="d-addr">' + esc(d.a) + ", " + esc(d.c) + " " + esc(d.z) + "<br>" + statusBadge(open) + gradeBadge(d.g) + "</p>",
+        '<p class="d-addr">' + esc(d.a) + ", " + esc(d.c) + " " + esc(d.z) + "<br>" + statusBadge(open) + "</p>"];
+      if (latest) {
+        h.push('<section class="latest-panel' + tone + '">',
+          '<p class="eyebrow">Latest inspection</p>',
+          '<div class="latest-date">' + fdate(latest[0]) + "</div>",
+          '<p class="latest-type">' + inspType(latest[1]) +
+            (latest[5] ? " " + gradeBadge(latest[5], true) : " " + resultBadge("", latest[2])) + "</p>",
+          '<div class="facts">',
+          '<div class="fact ' + (latest[2] > 0 ? "fact-pink" : "fact-lime") + '"><b>' + latest[2] + "</b><span>critical violations</span></div>",
+          '<div class="fact fact-teal"><b>' + latest[3] + "</b><span>non-critical violations</span></div>",
+          (latest[4] ? '<div class="fact fact-pink"><b>' + latest[4] + "</b><span>critical not corrected on site</span></div>" : ""),
+          "</div>");
+        if (latest[5]) {
+          h.push('<p class="unofficial-note">The letter grade is unofficial. It was written in the inspector’s comments; NYS DOH does not collect this data as a grading system.</p>');
+        }
+        h.push(renderViolations(latest), "</section>");
+      } else {
+        h.push('<section class="latest-panel"><p class="eyebrow">Latest inspection</p><p class="muted">No inspections in the source files.</p></section>');
+      }
+      h.push('<h3 class="sec">On record</h3>',
         '<div class="facts">',
-        '<div class="fact"><b>' + d.i.length + "</b><span>inspections on record</span></div>",
-        '<div class="fact"><b>' + crit + "</b><span>critical violations, all time</span></div>",
-        '<div class="fact"><b>' + crit3 + "</b><span>critical violations, last 3 years (" + n3 + " inspection" + (n3 === 1 ? "" : "s") + ")</span></div>",
-        '<div class="fact"><b>' + (d.i.length ? fdate(d.i[0][0]) : "—") + "</b><span>latest inspection</span></div>",
+        '<div class="fact fact-lime"><b>' + d.i.length + "</b><span>inspections on record</span></div>",
+        '<div class="fact fact-pink"><b>' + crit + "</b><span>critical violations, all time</span></div>",
+        '<div class="fact fact-pink"><b>' + crit3 + "</b><span>critical violations, last 3 years (" + n3 + " inspection" + (n3 === 1 ? "" : "s") + ")</span></div>",
+        '<div class="fact fact-teal"><b>' + (d.i.length ? fdate(d.i[d.i.length - 1][0]) : "—") + "</b><span>first record</span></div>",
         "</div>",
         '<dl class="kv">',
         "<dt>Type</dt><dd>" + esc(d.t) + "</dd>",
@@ -117,10 +211,9 @@
         d.dba ? "<dt>Doing business as</dt><dd>" + esc(d.dba) + "</dd>" : "",
         d.corp ? "<dt>Operator</dt><dd>" + esc(d.corp) + "</dd>" : "",
         "<dt>Town</dt><dd>" + esc(d.m) + "</dd>",
-        "<dt>First record</dt><dd>" + (d.i.length ? fdate(d.i[d.i.length - 1][0]) : "—") + "</dd>",
         d.pe ? "<dt>Permit expires</dt><dd>" + fdate(d.pe) + "</dd>" : "",
         "<dt>NYS operation ID</dt><dd>" + esc(id) + (d.fc ? " · facility code " + esc(d.fc) : "") + "</dd>",
-        "</dl>"];
+        "</dl>");
       if (!d.ll) h.push('<p class="muted">This address could not be placed on the map.</p>');
       if (d.same && d.same.length) {
         h.push('<div class="note"><strong>Same location history.</strong> ' + d.same.length + " other permit" + (d.same.length === 1 ? "" : "s") +
@@ -132,27 +225,15 @@
         if (d.same.length > 25) h.push("<li class='muted'>and " + (d.same.length - 25) + " more</li>");
         h.push("</ul></div>");
       }
-      h.push('<h3 class="sec">Inspection history</h3>');
-      if (!d.i.length) h.push('<p class="muted">No inspections in the source files.</p>');
-      d.i.forEach(function (x) {
-        var v = x[7];
-        h.push('<div class="insp"><div class="insp-h"><span><span class="date">' + fdate(x[0]) + "</span> · " + (x[1] === "R" ? "Re-inspection" : "Inspection") +
-          gradeBadge(x[5]) + '</span><span class="cnt">' + x[2] + " critical" + (x[4] ? " (" + x[4] + " not corrected on site)" : "") + " · " + x[3] + " non-critical</span></div>");
-        if (v.length) {
-          h.push('<ul class="vlist">');
-          v.forEach(function (it) {
-            h.push('<li class="' + (it[2] ? "crit" : "") + '">' + (it[2] ? '<span class="ct">Critical</span>' : "") + '<span class="code">' + esc(it[0]) + "</span>" + esc(viol[it[1]] || "") + "</li>");
-          });
-          h.push("</ul>");
-        } else if (!x[2] && !x[3]) {
-          h.push('<div class="none">No violations recorded.</div>');
-        } else {
-          h.push('<div class="none">Violation details were not itemized in the source data.</div>');
-        }
-        if (x[6]) h.push('<p class="cmt"><span class="cmt-l">Inspector comments</span>' + esc(x[6]) + "</p>");
-        h.push("</div>");
-      });
-      h.push('<p class="muted" style="font-size:12.5px;margin-top:18px">From NYS DOH public records through Nov 6, 2026. An inspection shows conditions on one day only. Grades are taken from inspector comments, not an official grade field. <a href="#/about">About the data</a></p>');
+      var earlier = d.i.slice(1);
+      if (earlier.length) {
+        h.push('<details class="history"><summary>Earlier inspections <span class="hist-n">' + earlier.length + "</span></summary>");
+        earlier.forEach(function (x) { h.push(renderInsp(x)); });
+        h.push("</details>");
+      } else if (d.i.length) {
+        h.push('<p class="muted">No earlier inspections on record.</p>');
+      }
+      h.push('<p class="muted foot-note">From NYS DOH public records through Nov 6, 2026. An inspection shows conditions on one day only. Grades are taken from inspector comments, not an official grade field. <a href="#/about">About the data</a></p>');
       pane.innerHTML = h.join("");
       $("sidebar").scrollTop = 0; window.scrollTo(0, 0);
       focusOnMap(id, d);
@@ -161,7 +242,7 @@
   function focusOnMap(id, d) {
     if (highlight) { map.removeLayer(highlight); highlight = null; }
     if (!d.ll) return;
-    highlight = L.circleMarker(d.ll, { radius: 11, weight: 3, color: "#a4262c", fill: false }).addTo(map);
+    highlight = L.circleMarker(d.ll, { radius: 12, weight: 3, color: "#c8ff00", fill: false, opacity: 1 }).addTo(map);
     map.setView(d.ll, Math.max(map.getZoom(), 16));
   }
 
@@ -171,18 +252,26 @@
     if (listsLoaded) return; listsLoaded = true;
     getJSON("data/lists.json").then(function (L_) {
       function item(x, extra) {
-        return '<li><a href="#/r/' + x[0] + '">' + esc(nameCase(x[1])) + "</a>" + statusBadge(x[3]) + gradeBadge(x[4]) + '<span class="m">' + (x[9] ? esc(nameCase(x[9])) + " · " : "") + esc(x[2]) + " · " + extra + "</span></li>";
+        var lastc = x.length > 10 ? x[10] : null;
+        return '<li><a href="#/r/' + x[0] + '">' + esc(nameCase(x[1])) + "</a>" + statusBadge(x[3]) +
+          '<div class="r-latest">' + fdate(x[5]) + " " + resultBadge(x[4], lastc) + "</div>" +
+          '<span class="m">' + (x[9] ? esc(nameCase(x[9])) + " · " : "") + esc(x[2]) + (extra ? " · " + extra : "") + "</span></li>";
       }
       var h = ['<div class="lists">'];
       h.push('<section class="lcard"><h2>Recent inspections</h2><p class="desc">The most recently inspected places in the records.</p><ol>' +
-        L_.recent.map(function (x) { return item(x, "inspected " + fdate(x[5]) + " · " + x[6] + " critical in last 3 yrs"); }).join("") + "</ol></section>");
+        L_.recent.map(function (x) { return item(x, x[8] + " inspection" + (x[8] === 1 ? "" : "s") + " on record"); }).join("") + "</ol></section>");
       h.push('<section class="lcard"><h2>Most critical violations, last 3 years</h2><p class="desc">Open places with the most critical violations cited since Nov 9, 2023. Many were corrected during the visit.</p><ol>' +
-        L_.crit3.map(function (x) { return item(x, x[6] + " critical violations · latest inspection " + fdate(x[5])); }).join("") + "</ol></section>");
+        L_.crit3.map(function (x) { return item(x, x[6] + " critical in last 3 yrs"); }).join("") + "</ol></section>");
       h.push('<section class="lcard"><h2>Latest grade C</h2><p class="desc">Places whose most recent grade written in inspector comments was C. Open and closed places are both listed.</p><ol>' +
-        L_.latestC.map(function (x) { return item(x, "latest inspection " + fdate(x[5]) + " · " + x[8] + " inspections on record"); }).join("") + "</ol></section>");
+        L_.latestC.map(function (x) { return item(x, x[8] + " inspection" + (x[8] === 1 ? "" : "s") + " on record"); }).join("") + "</ol></section>");
       h.push('<section class="lcard"><h2>Changed hands at the same address</h2><p class="desc">Open restaurants and other food businesses at addresses where two or more earlier food businesses had permits.</p><ol>' +
         L_.turnover.map(function (t) {
-          return '<li><a href="#/r/' + t[0] + '">' + esc(nameCase(t[1])) + '</a><span class="m">' + esc(t[2]) + ", " + esc(t[3]) + " · " + t[4] + " earlier: " +
+          var last = t.length > 6 ? t[6] : "";
+          var grade = t.length > 7 ? t[7] : "";
+          var lastc = t.length > 8 ? t[8] : null;
+          return '<li><a href="#/r/' + t[0] + '">' + esc(nameCase(t[1])) + "</a>" +
+            (last ? '<div class="r-latest">' + fdate(last) + " " + resultBadge(grade, lastc) + "</div>" : "") +
+            '<span class="m">' + esc(t[2]) + ", " + esc(t[3]) + " · " + t[4] + " earlier: " +
             esc(t[5].map(nameCase).join(", ")) + (t[4] > t[5].length ? "…" : "") + "</span></li>";
         }).join("") + "</ol></section>");
       h.push("</div>");
